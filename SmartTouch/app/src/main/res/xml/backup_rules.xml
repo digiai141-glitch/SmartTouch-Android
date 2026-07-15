@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <!--
+      SmartTouch backup rules.
+      We include DataStore preferences so users can restore their gesture config.
+      No sensitive data is backed up.
+    -->
+    <include domain="sharedpref" path="." />
+    <include domain="file" path="datastore" />
+</full-backup-content>

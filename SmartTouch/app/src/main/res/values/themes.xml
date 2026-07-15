@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Base theme required by the Manifest; Compose handles actual theming -->
+    <style name="Theme.SmartTouch" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- SmartTouch brand colours — used only as seed for Material 3 dynamic colour fallback -->
+    <color name="seed">#006DDA</color>
+    <color name="md_theme_light_primary">#006DDA</color>
+    <color name="md_theme_light_onPrimary">#FFFFFF</color>
+    <color name="md_theme_light_primaryContainer">#D8E2FF</color>
+    <color name="md_theme_light_onPrimaryContainer">#001A41</color>
+    <color name="md_theme_light_secondary">#565E71</color>
+    <color name="md_theme_light_onSecondary">#FFFFFF</color>
+    <color name="md_theme_light_background">#FDFBFF</color>
+    <color name="md_theme_light_surface">#FDFBFF</color>
+    <color name="md_theme_dark_primary">#ADC6FF</color>
+    <color name="md_theme_dark_onPrimary">#002F6A</color>
+    <color name="md_theme_dark_primaryContainer">#00429B</color>
+    <color name="md_theme_dark_background">#1A1B1F</color>
+    <color name="md_theme_dark_surface">#1A1B1F</color>
+</resources>
