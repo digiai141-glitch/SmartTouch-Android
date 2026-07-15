@@ -34,7 +34,7 @@ jobs:
           distribution: ${{ env.JAVA_DISTRIBUTION }}
 
       - name: Bootstrap Gradle Wrapper JAR
-        working-directory: SmartTouch
+        working-directory: .
         run: |
           if [ ! -f "gradle/wrapper/gradle-wrapper.jar" ]; then
             echo "Generating gradle-wrapper.jar via system Gradle…"
@@ -49,7 +49,7 @@ jobs:
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
 
       - name: Run Android Lint
-        working-directory: SmartTouch
+        working-directory: .
         run: ./gradlew lint --no-daemon --stacktrace
 
       - name: Upload lint report
@@ -77,7 +77,7 @@ jobs:
           distribution: ${{ env.JAVA_DISTRIBUTION }}
 
       - name: Bootstrap Gradle Wrapper JAR
-        working-directory: SmartTouch
+        working-directory: .
         run: |
           if [ ! -f "gradle/wrapper/gradle-wrapper.jar" ]; then
             gradle wrapper --gradle-version ${{ env.GRADLE_VERSION }} --distribution-type bin
@@ -91,7 +91,7 @@ jobs:
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
 
       - name: Run unit tests
-        working-directory: SmartTouch
+        working-directory: .
         run: ./gradlew test --no-daemon --stacktrace
 
       - name: Upload test results
@@ -120,7 +120,7 @@ jobs:
           distribution: ${{ env.JAVA_DISTRIBUTION }}
 
       - name: Bootstrap Gradle Wrapper JAR
-        working-directory: SmartTouch
+        working-directory: .
         run: |
           if [ ! -f "gradle/wrapper/gradle-wrapper.jar" ]; then
             gradle wrapper --gradle-version ${{ env.GRADLE_VERSION }} --distribution-type bin
@@ -133,7 +133,7 @@ jobs:
           validate-wrappers: false
 
       - name: Build debug APK
-        working-directory: SmartTouch
+        working-directory: .
         run: ./gradlew assembleDebug --no-daemon --stacktrace
 
       - name: Upload debug APK
@@ -163,7 +163,7 @@ jobs:
           distribution: ${{ env.JAVA_DISTRIBUTION }}
 
       - name: Bootstrap Gradle Wrapper JAR
-        working-directory: SmartTouch
+        working-directory: .
         run: |
           if [ ! -f "gradle/wrapper/gradle-wrapper.jar" ]; then
             gradle wrapper --gradle-version ${{ env.GRADLE_VERSION }} --distribution-type bin
@@ -178,7 +178,7 @@ jobs:
       # Decode a production keystore when secrets are provided; otherwise create
       # a temporary dev keystore so the release build always succeeds on CI.
       - name: Prepare signing keystore
-        working-directory: SmartTouch
+        working-directory: .
         run: |
           mkdir -p keystore
           if [ -n "${{ secrets.KEYSTORE_BASE64 }}" ]; then
@@ -204,7 +204,7 @@ jobs:
           fi
 
       - name: Build release APK
-        working-directory: SmartTouch
+        working-directory: .
         run: ./gradlew assembleRelease --no-daemon --stacktrace
 
       - name: Upload release APK
