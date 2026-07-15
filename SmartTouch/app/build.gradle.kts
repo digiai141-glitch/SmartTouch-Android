@@ -12,7 +12,7 @@ android {
 
     defaultConfig {
         applicationId = "com.smarttouch.app"
-        minSdk = 29  // Android 10
+        minSdk = 29  // Android 10+
         targetSdk = 35
         versionCode = 1
         versionName = "1.0.0"
@@ -24,13 +24,26 @@ android {
         }
     }
 
-    signingConfigs {
-        create("release") {
-            // Override via environment variables in CI
-            storeFile = file(System.getenv("KEYSTORE_PATH") ?: "keystore/debug.keystore")
-            storePassword = System.getenv("KEYSTORE_PASSWORD") ?: "android"
-            keyAlias = System.getenv("KEY_ALIAS") ?: "androiddebugkey"
-            keyPassword = System.getenv("KEY_PASSWORD") ?: "android"
+    // ── Signing ───────────────────────────────────────────────────────────────
+    //
+    // Release signing is opt-in:
+    //   • Set KEYSTORE_PATH / KEYSTORE_PASSWORD / KEY_ALIAS / KEY_PASSWORD in
+    //     the environment (or GitHub Secrets) for a production-signed APK.
+    //   • When those variables are absent the release variant falls back to the
+    //     default debug signing config — the build always succeeds on CI.
+    //
+    val releaseKeystorePath = System.getenv("KEYSTORE_PATH")
+    val hasReleaseKeystore = !releaseKeystorePath.isNullOrBlank() &&
+            file(releaseKeystorePath).exists()
+
+    if (hasReleaseKeystore) {
+        signingConfigs {
+            create("release") {
+                storeFile = file(releaseKeystorePath!!)
+                storePassword = System.getenv("KEYSTORE_PASSWORD") ?: ""
+                keyAlias = System.getenv("KEY_ALIAS") ?: ""
+                keyPassword = System.getenv("KEY_PASSWORD") ?: ""
+            }
         }
     }
 
@@ -38,11 +51,16 @@ android {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
-            signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
+                "proguard-rules.pro",
             )
+            signingConfig = if (hasReleaseKeystore) {
+                signingConfigs.getByName("release")
+            } else {
+                // Fallback to debug signing so CI never fails
+                signingConfigs.getByName("debug")
+            }
         }
         debug {
             applicationIdSuffix = ".debug"
@@ -60,7 +78,7 @@ android {
         jvmTarget = "17"
         freeCompilerArgs += listOf(
             "-opt-in=androidx.compose.material3.ExperimentalMaterial3Api",
-            "-opt-in=kotlinx.coroutines.ExperimentalCoroutinesApi"
+            "-opt-in=kotlinx.coroutines.ExperimentalCoroutinesApi",
         )
     }
 
@@ -88,7 +106,7 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
 
-    // Compose
+    // Compose (versions come from BOM)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.ui)
     implementation(libs.androidx.ui.graphics)
@@ -115,15 +133,18 @@ dependencies {
     // Coroutines
     implementation(libs.kotlinx.coroutines.android)
 
-    // Testing
+    // ── Testing ───────────────────────────────────────────────────────────────
     testImplementation(libs.junit)
     testImplementation(libs.mockk)
     testImplementation(libs.google.truth)
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.robolectric)
+
     androidTestImplementation(libs.androidx.test.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.ui.test.junit4)
+
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
 }

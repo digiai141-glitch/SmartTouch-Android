@@ -27,6 +27,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -40,21 +41,35 @@ class OverlayService : Service() {
     private lateinit var windowManager: WindowManager
     private val overlayViews = mutableListOf<FrameLayout>()
 
-    /** Always-current local copy of settings, updated whenever DataStore emits. */
+    /** In-memory cache — updated whenever DataStore emits; no Flow collection on every gesture. */
     private var currentSettings = AppSettings.Default
-
-    /** Always-current local copy of mappings, updated whenever DataStore emits. */
     private var currentMappings = emptyList<GestureMapping>()
 
     override fun onCreate() {
         super.onCreate()
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
-        startForeground(
-            SmartTouchApp.NOTIFICATION_ID_SERVICE,
-            buildNotification(),
-        )
-        collectSettings()
-        collectMappings()
+        startForeground(SmartTouchApp.NOTIFICATION_ID_SERVICE, buildNotification())
+
+        // 1. Collect mappings into the cache (never cancels — always up-to-date).
+        scope.launch {
+            gestureRepository.mappingsFlow.collect { mappings ->
+                currentMappings = mappings
+            }
+        }
+
+        // 2. Collect settings, rebuild overlays whenever zone-size changes.
+        scope.launch {
+            // Get the first emission immediately to build the initial overlay layout.
+            currentSettings = settingsRepository.settingsFlow.first()
+            rebuildOverlays()
+
+            // Then watch for subsequent changes that affect layout.
+            settingsRepository.settingsFlow.collect { settings ->
+                val needsRebuild = settings.gestureZoneSize != currentSettings.gestureZoneSize
+                currentSettings = settings
+                if (needsRebuild) rebuildOverlays()
+            }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -73,44 +88,17 @@ class OverlayService : Service() {
         scope.cancel()
     }
 
-    // ── Data collection ──────────────────────────────────────────────────────
-
-    private fun collectSettings() {
-        scope.launch {
-            settingsRepository.settingsFlow.collect { settings ->
-                val zoneChanged = settings.gestureZoneSize != currentSettings.gestureZoneSize
-                currentSettings = settings
-                if (zoneChanged) rebuildOverlays()
-            }
-        }
-    }
-
-    private fun collectMappings() {
-        scope.launch {
-            gestureRepository.mappingsFlow.collect { mappings ->
-                currentMappings = mappings
-            }
-        }
-        // Build initial overlays once settings are first emitted.
-        scope.launch {
-            settingsRepository.settingsFlow.collect {
-                rebuildOverlays()
-                return@collect  // only rebuild once; subsequent rebuilds happen in collectSettings
-            }
-        }
-    }
-
     // ── Overlay management ────────────────────────────────────────────────────
 
     private fun rebuildOverlays() {
         removeAllOverlays()
         val zoneSizePx = dpToPx(currentSettings.gestureZoneSize)
-        val displayMetrics = resources.displayMetrics
-        val screenW = displayMetrics.widthPixels
-        val screenH = displayMetrics.heightPixels
+        val dm = resources.displayMetrics
+        val screenW = dm.widthPixels
+        val screenH = dm.heightPixels
 
-        addZoneOverlay(GestureZone.TOP_EDGE,    screenW,    zoneSizePx, Gravity.TOP)
-        addZoneOverlay(GestureZone.BOTTOM_EDGE, screenW,    zoneSizePx, Gravity.BOTTOM)
+        addZoneOverlay(GestureZone.TOP_EDGE,    screenW,    zoneSizePx, Gravity.TOP or Gravity.START)
+        addZoneOverlay(GestureZone.BOTTOM_EDGE, screenW,    zoneSizePx, Gravity.BOTTOM or Gravity.START)
         addZoneOverlay(GestureZone.LEFT_EDGE,   zoneSizePx, screenH,    Gravity.START or Gravity.TOP)
         addZoneOverlay(GestureZone.RIGHT_EDGE,  zoneSizePx, screenH,    Gravity.END or Gravity.TOP)
     }
@@ -133,24 +121,20 @@ class OverlayService : Service() {
                     or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
                     or WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
             PixelFormat.TRANSLUCENT,
-        ).apply {
-            this.gravity = gravity
-        }
+        ).apply { this.gravity = gravity }
 
         windowManager.addView(view, params)
         overlayViews.add(view)
     }
 
     private fun removeAllOverlays() {
-        overlayViews.forEach { view ->
-            runCatching { windowManager.removeView(view) }
-        }
+        overlayViews.forEach { view -> runCatching { windowManager.removeView(view) } }
         overlayViews.clear()
     }
 
     /**
      * Looks up the matching mapping from the in-memory cache and executes the action.
-     * No new coroutine or Flow collection is started — this is safe to call on every gesture.
+     * Called on every recognised gesture — no new coroutines or Flow collections here.
      */
     private fun handleGesture(zone: GestureZone, gestureType: GestureType) {
         val mapping = currentMappings.firstOrNull {
@@ -158,8 +142,7 @@ class OverlayService : Service() {
         } ?: return
 
         val accessibility = SmartTouchAccessibilityService.instance ?: return
-        val executor = ActionExecutor(this, accessibility)
-        executor.execute(mapping, currentSettings.hapticFeedback)
+        ActionExecutor(this, accessibility).execute(mapping, currentSettings.hapticFeedback)
     }
 
     // ── Notification ──────────────────────────────────────────────────────────
@@ -186,10 +169,8 @@ class OverlayService : Service() {
             .build()
     }
 
-    private fun dpToPx(dp: Int): Int {
-        val scale = resources.displayMetrics.density
-        return (dp * scale + 0.5f).toInt()
-    }
+    private fun dpToPx(dp: Int): Int =
+        (dp * resources.displayMetrics.density + 0.5f).toInt()
 
     companion object {
         const val ACTION_STOP = "com.smarttouch.app.ACTION_STOP_OVERLAY"

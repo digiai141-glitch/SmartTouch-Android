@@ -2,39 +2,43 @@
 # =============================================================================
 # bootstrap-gradle-wrapper.sh
 #
-# Downloads gradle-wrapper.jar from the official Gradle GitHub repository.
-# Run this once after cloning if the JAR is missing (e.g. on a fresh CI agent).
+# Generates gradle/wrapper/gradle-wrapper.jar using the system-installed Gradle
+# binary. Intended for CI environments (GitHub Actions ubuntu-latest has Gradle
+# pre-installed) and developer machines.
 #
-# Usage:
+# Usage (run from the SmartTouch project root):
 #   chmod +x scripts/bootstrap-gradle-wrapper.sh
 #   ./scripts/bootstrap-gradle-wrapper.sh
 # =============================================================================
-
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+JAR="${PROJECT_ROOT}/gradle/wrapper/gradle-wrapper.jar"
 GRADLE_VERSION="8.11.1"
-JAR_DIR="$(dirname "$0")/../gradle/wrapper"
-JAR_PATH="$JAR_DIR/gradle-wrapper.jar"
 
-if [ -f "$JAR_PATH" ]; then
-  echo "✅  gradle-wrapper.jar already present at $JAR_PATH"
+cd "$PROJECT_ROOT"
+
+if [ -f "$JAR" ]; then
+  echo "✅  gradle-wrapper.jar already present — nothing to do."
   exit 0
 fi
 
-echo "⬇️   Downloading gradle-wrapper.jar for Gradle $GRADLE_VERSION …"
+echo "⚙️   gradle-wrapper.jar not found. Generating via system Gradle…"
 
-mkdir -p "$JAR_DIR"
-
-# Official source: Gradle GitHub releases
-URL="https://raw.githubusercontent.com/gradle/gradle/v${GRADLE_VERSION}/gradle/wrapper/gradle-wrapper.jar"
-
-if command -v curl &>/dev/null; then
-  curl -fsSL "$URL" -o "$JAR_PATH"
-elif command -v wget &>/dev/null; then
-  wget -q "$URL" -O "$JAR_PATH"
-else
-  echo "❌  Neither curl nor wget found. Please install one and retry."
+if ! command -v gradle &>/dev/null; then
+  echo "❌  'gradle' not found on PATH."
+  echo "    Install Gradle $GRADLE_VERSION or run: sdk install gradle $GRADLE_VERSION"
   exit 1
 fi
 
-echo "✅  gradle-wrapper.jar downloaded to $JAR_PATH"
+gradle wrapper \
+  --gradle-version "$GRADLE_VERSION" \
+  --distribution-type bin \
+  --no-daemon
+
+chmod +x gradlew gradlew.bat 2>/dev/null || true
+
+echo "✅  gradle-wrapper.jar generated successfully."
+echo "    Commit gradle/wrapper/gradle-wrapper.jar to your repository to skip"
+echo "    this step on future checkouts."

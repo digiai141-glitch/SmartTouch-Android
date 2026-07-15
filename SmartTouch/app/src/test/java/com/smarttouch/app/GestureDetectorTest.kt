@@ -1,103 +1,104 @@
 package com.smarttouch.app
 
-import android.content.Context
 import android.os.SystemClock
 import android.view.MotionEvent
-import android.view.ViewConfiguration
+import androidx.test.core.app.ApplicationProvider
 import com.google.common.truth.Truth.assertThat
 import com.smarttouch.app.data.model.GestureType
 import com.smarttouch.app.service.GestureDetector
-import io.mockk.every
-import io.mockk.mockk
-import io.mockk.mockkStatic
-import io.mockk.unmockkAll
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
+/**
+ * Unit tests for [GestureDetector].
+ *
+ * Uses Robolectric so that Android framework classes (Handler, Looper,
+ * ViewConfiguration, MotionEvent) work on the JVM without a device.
+ */
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [33])
 class GestureDetectorTest {
 
-    private lateinit var context: Context
     private val detectedGestures = mutableListOf<GestureType>()
     private lateinit var detector: GestureDetector
 
-    @After
-    fun tearDown() {
-        unmockkAll()
-        detector.destroy()
-    }
-
     @Before
     fun setUp() {
-        context = mockk(relaxed = true)
-        val viewConfig = mockk<ViewConfiguration>(relaxed = true)
-        mockkStatic(ViewConfiguration::class)
-        every { ViewConfiguration.get(any()) } returns viewConfig
-        every { viewConfig.scaledTouchSlop } returns 8
-        every { ViewConfiguration.getLongPressTimeout() } returns 500
-        every { ViewConfiguration.getDoubleTapTimeout() } returns 300
-
-        mockkStatic(SystemClock::class)
-        every { SystemClock.uptimeMillis() } returns 0L
-
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         detector = GestureDetector(context, sensitivity = 5) { gesture ->
             detectedGestures.add(gesture)
         }
     }
 
+    @After
+    fun tearDown() {
+        detector.destroy()
+        detectedGestures.clear()
+    }
+
+    // ── Swipe gestures ────────────────────────────────────────────────────────
+
     @Test
-    fun `swipe right detected when horizontal distance exceeds threshold`() {
-        val now = 100L
-        val down = motionEvent(MotionEvent.ACTION_DOWN, 100f, 400f, now)
-        val up = motionEvent(MotionEvent.ACTION_UP, 250f, 400f, now + 200)
-
-        detector.onTouchEvent(down)
-        detector.onTouchEvent(up)
-
+    fun `swipe right detected when horizontal delta exceeds threshold`() {
+        sendSwipe(startX = 50f, startY = 300f, endX = 250f, endY = 300f)
         assertThat(detectedGestures).contains(GestureType.SWIPE_RIGHT)
     }
 
     @Test
-    fun `swipe left detected when horizontal distance exceeds threshold leftward`() {
-        val now = 100L
-        val down = motionEvent(MotionEvent.ACTION_DOWN, 250f, 400f, now)
-        val up = motionEvent(MotionEvent.ACTION_UP, 100f, 400f, now + 200)
-
-        detector.onTouchEvent(down)
-        detector.onTouchEvent(up)
-
+    fun `swipe left detected when moving from right to left`() {
+        sendSwipe(startX = 250f, startY = 300f, endX = 50f, endY = 300f)
         assertThat(detectedGestures).contains(GestureType.SWIPE_LEFT)
     }
 
     @Test
-    fun `swipe up detected when vertical distance exceeds threshold upward`() {
-        val now = 100L
-        val down = motionEvent(MotionEvent.ACTION_DOWN, 400f, 400f, now)
-        val up = motionEvent(MotionEvent.ACTION_UP, 400f, 250f, now + 200)
-
-        detector.onTouchEvent(down)
-        detector.onTouchEvent(up)
-
+    fun `swipe up detected when moving upward`() {
+        sendSwipe(startX = 300f, startY = 400f, endX = 300f, endY = 200f)
         assertThat(detectedGestures).contains(GestureType.SWIPE_UP)
     }
 
     @Test
-    fun `swipe down detected when vertical distance exceeds threshold downward`() {
-        val now = 100L
-        val down = motionEvent(MotionEvent.ACTION_DOWN, 400f, 250f, now)
-        val up = motionEvent(MotionEvent.ACTION_UP, 400f, 400f, now + 200)
+    fun `swipe down detected when moving downward`() {
+        sendSwipe(startX = 300f, startY = 200f, endX = 300f, endY = 400f)
+        assertThat(detectedGestures).contains(GestureType.SWIPE_DOWN)
+    }
 
+    @Test
+    fun `tiny movement does not trigger a swipe`() {
+        sendSwipe(startX = 100f, startY = 300f, endX = 105f, endY = 300f)
+        assertThat(detectedGestures).doesNotContain(GestureType.SWIPE_RIGHT)
+        assertThat(detectedGestures).doesNotContain(GestureType.SWIPE_LEFT)
+    }
+
+    @Test
+    fun `slow swipe beyond timeout does not register as swipe`() {
+        val t = SystemClock.uptimeMillis()
+        val down = MotionEvent.obtain(t, t, MotionEvent.ACTION_DOWN, 50f, 300f, 0)
+        // Simulate a gesture that takes longer than swipeMaxDuration (500 ms)
+        val up = MotionEvent.obtain(t, t + 700, MotionEvent.ACTION_UP, 250f, 300f, 0)
         detector.onTouchEvent(down)
         detector.onTouchEvent(up)
-
-        assertThat(detectedGestures).contains(GestureType.SWIPE_DOWN)
+        down.recycle()
+        up.recycle()
+        assertThat(detectedGestures).doesNotContain(GestureType.SWIPE_RIGHT)
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private fun motionEvent(action: Int, x: Float, y: Float, time: Long): MotionEvent {
-        return MotionEvent.obtain(time, time, action, x, y, 0).also {
-            // rawX/rawY setters aren't public; detector uses rawX/rawY so we mock via obtain
-        }
+    private fun sendSwipe(
+        startX: Float, startY: Float,
+        endX: Float, endY: Float,
+        durationMs: Long = 150,
+    ) {
+        val t = SystemClock.uptimeMillis()
+        val down = MotionEvent.obtain(t, t, MotionEvent.ACTION_DOWN, startX, startY, 0)
+        val up   = MotionEvent.obtain(t, t + durationMs, MotionEvent.ACTION_UP, endX, endY, 0)
+        detector.onTouchEvent(down)
+        detector.onTouchEvent(up)
+        down.recycle()
+        up.recycle()
     }
 }

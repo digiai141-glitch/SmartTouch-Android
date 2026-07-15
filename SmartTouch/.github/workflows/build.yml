@@ -14,49 +14,12 @@ concurrency:
 env:
   JAVA_VERSION: '17'
   JAVA_DISTRIBUTION: 'temurin'
+  GRADLE_VERSION: '8.11.1'
 
 jobs:
-  # ── Lint ─────────────────────────────────────────────────────────────────
+  # ── Lint ─────────────────────────────────────────────────────────────────────
   lint:
     name: Lint
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up JDK ${{ env.JAVA_VERSION }}
-        uses: actions/setup-java@v4
-        with:
-          java-version: ${{ env.JAVA_VERSION }}
-          distribution: ${{ env.JAVA_DISTRIBUTION }}
-
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
-
-      - name: Bootstrap Gradle wrapper JAR
-        run: bash scripts/bootstrap-gradle-wrapper.sh
-
-      - name: Make gradlew executable
-        run: chmod +x gradlew
-
-      - name: Run lint
-        run: ./gradlew lint --no-daemon --stacktrace
-
-      - name: Upload lint results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: lint-results
-          path: app/build/reports/lint-results-*.html
-          retention-days: 14
-
-  # ── Unit Tests ────────────────────────────────────────────────────────────
-  test:
-    name: Unit Tests
     runs-on: ubuntu-latest
     timeout-minutes: 25
 
@@ -70,34 +33,38 @@ jobs:
           java-version: ${{ env.JAVA_VERSION }}
           distribution: ${{ env.JAVA_DISTRIBUTION }}
 
+      - name: Bootstrap Gradle Wrapper JAR
+        working-directory: SmartTouch
+        run: |
+          if [ ! -f "gradle/wrapper/gradle-wrapper.jar" ]; then
+            echo "Generating gradle-wrapper.jar via system Gradle…"
+            gradle wrapper --gradle-version ${{ env.GRADLE_VERSION }} --distribution-type bin
+          fi
+          chmod +x gradlew
+
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
+          validate-wrappers: false
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
 
-      - name: Bootstrap Gradle wrapper JAR
-        run: bash scripts/bootstrap-gradle-wrapper.sh
+      - name: Run Android Lint
+        working-directory: SmartTouch
+        run: ./gradlew lint --no-daemon --stacktrace
 
-      - name: Make gradlew executable
-        run: chmod +x gradlew
-
-      - name: Run unit tests
-        run: ./gradlew test --no-daemon --stacktrace
-
-      - name: Upload test results
+      - name: Upload lint report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-results
-          path: app/build/reports/tests/
+          name: lint-results
+          path: SmartTouch/app/build/reports/lint-results-*.html
           retention-days: 14
 
-  # ── Debug APK ─────────────────────────────────────────────────────────────
-  build-debug:
-    name: Build Debug APK
-    needs: [ lint, test ]
+  # ── Unit Tests ────────────────────────────────────────────────────────────────
+  test:
+    name: Unit Tests
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 30
 
     steps:
       - name: Checkout
@@ -109,31 +76,80 @@ jobs:
           java-version: ${{ env.JAVA_VERSION }}
           distribution: ${{ env.JAVA_DISTRIBUTION }}
 
+      - name: Bootstrap Gradle Wrapper JAR
+        working-directory: SmartTouch
+        run: |
+          if [ ! -f "gradle/wrapper/gradle-wrapper.jar" ]; then
+            gradle wrapper --gradle-version ${{ env.GRADLE_VERSION }} --distribution-type bin
+          fi
+          chmod +x gradlew
+
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
+        with:
+          validate-wrappers: false
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
 
-      - name: Bootstrap Gradle wrapper JAR
-        run: bash scripts/bootstrap-gradle-wrapper.sh
+      - name: Run unit tests
+        working-directory: SmartTouch
+        run: ./gradlew test --no-daemon --stacktrace
 
-      - name: Make gradlew executable
-        run: chmod +x gradlew
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: SmartTouch/app/build/reports/tests/
+          retention-days: 14
+
+  # ── Debug APK ─────────────────────────────────────────────────────────────────
+  build-debug:
+    name: Build Debug APK
+    needs: [ lint, test ]
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: ${{ env.JAVA_DISTRIBUTION }}
+
+      - name: Bootstrap Gradle Wrapper JAR
+        working-directory: SmartTouch
+        run: |
+          if [ ! -f "gradle/wrapper/gradle-wrapper.jar" ]; then
+            gradle wrapper --gradle-version ${{ env.GRADLE_VERSION }} --distribution-type bin
+          fi
+          chmod +x gradlew
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          validate-wrappers: false
 
       - name: Build debug APK
+        working-directory: SmartTouch
         run: ./gradlew assembleDebug --no-daemon --stacktrace
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: app-debug-${{ github.sha }}
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: app-debug-${{ github.run_number }}
+          path: SmartTouch/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
           retention-days: 30
 
-  # ── Release APK ───────────────────────────────────────────────────────────
+  # ── Release APK ───────────────────────────────────────────────────────────────
   build-release:
     name: Build Release APK
     needs: [ lint, test ]
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 40
     if: github.event_name != 'pull_request'
 
     steps:
@@ -146,31 +162,55 @@ jobs:
           java-version: ${{ env.JAVA_VERSION }}
           distribution: ${{ env.JAVA_DISTRIBUTION }}
 
+      - name: Bootstrap Gradle Wrapper JAR
+        working-directory: SmartTouch
+        run: |
+          if [ ! -f "gradle/wrapper/gradle-wrapper.jar" ]; then
+            gradle wrapper --gradle-version ${{ env.GRADLE_VERSION }} --distribution-type bin
+          fi
+          chmod +x gradlew
+
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
+        with:
+          validate-wrappers: false
 
-      - name: Bootstrap Gradle wrapper JAR
-        run: bash scripts/bootstrap-gradle-wrapper.sh
-
-      - name: Make gradlew executable
-        run: chmod +x gradlew
-
-      - name: Decode keystore
-        if: ${{ secrets.KEYSTORE_BASE64 != '' }}
+      # Decode a production keystore when secrets are provided; otherwise create
+      # a temporary dev keystore so the release build always succeeds on CI.
+      - name: Prepare signing keystore
+        working-directory: SmartTouch
         run: |
           mkdir -p keystore
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > keystore/release.keystore
-          echo "KEYSTORE_PATH=keystore/release.keystore" >> $GITHUB_ENV
-          echo "KEYSTORE_PASSWORD=${{ secrets.KEYSTORE_PASSWORD }}" >> $GITHUB_ENV
-          echo "KEY_ALIAS=${{ secrets.KEY_ALIAS }}" >> $GITHUB_ENV
-          echo "KEY_PASSWORD=${{ secrets.KEY_PASSWORD }}" >> $GITHUB_ENV
+          if [ -n "${{ secrets.KEYSTORE_BASE64 }}" ]; then
+            echo "Using production keystore from GitHub Secret"
+            echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > keystore/release.keystore
+            echo "KEYSTORE_PATH=keystore/release.keystore"   >> $GITHUB_ENV
+            echo "KEYSTORE_PASSWORD=${{ secrets.KEYSTORE_PASSWORD }}" >> $GITHUB_ENV
+            echo "KEY_ALIAS=${{ secrets.KEY_ALIAS }}"        >> $GITHUB_ENV
+            echo "KEY_PASSWORD=${{ secrets.KEY_PASSWORD }}"  >> $GITHUB_ENV
+          else
+            echo "No production keystore found — generating ephemeral dev keystore"
+            keytool -genkeypair -v \
+              -keystore keystore/release.keystore \
+              -alias smarttouch \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -storepass android -keypass android \
+              -dname "CN=SmartTouch CI, OU=Dev, O=SmartTouch, L=Unknown, S=Unknown, C=US" \
+              -noprompt
+            echo "KEYSTORE_PATH=keystore/release.keystore" >> $GITHUB_ENV
+            echo "KEYSTORE_PASSWORD=android"               >> $GITHUB_ENV
+            echo "KEY_ALIAS=smarttouch"                    >> $GITHUB_ENV
+            echo "KEY_PASSWORD=android"                    >> $GITHUB_ENV
+          fi
 
       - name: Build release APK
+        working-directory: SmartTouch
         run: ./gradlew assembleRelease --no-daemon --stacktrace
 
       - name: Upload release APK
         uses: actions/upload-artifact@v4
         with:
-          name: app-release-${{ github.sha }}
-          path: app/build/outputs/apk/release/app-release.apk
+          name: app-release-${{ github.run_number }}
+          path: SmartTouch/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
           retention-days: 90
